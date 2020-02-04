@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>Let's Chat</title>
+        <meta charset="utf-8">
+        <script defer src="https://use.fontawesome.com/releases/v5.3.1/js/all.js"></script>
+        <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.7.4/css/bulma.css">
+        <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.0/css/bootstrap.min.css" />
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+        <link rel="stylesheet" type="text/css" href="stylesheet.css">
+        <link href="http://ajax.googleapis.com/ajax/libs/jqueryui/1.7.2/themes/start/jquery-ui.css" type="text/css" rel="Stylesheet"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.3/jquery.min.js"></script>
+        <script src="http://ajax.googleapis.com/ajax/libs/jqueryui/1.8.5/jquery-ui.min.js"></script>
+        <script src="/socket.io/socket.io.js"></script>
+        <style>
+            #mainChatPage{visibility: hidden}
+            #newChatRoom{display: none}
+            #viewChatRooms{display: none}
+            #enterRoomPassword{display:none}
+
+            /* The Modal (background) */
+            .modal {
+            display: none; /* Hidden by default */
+            position: fixed; /* Stay in place */
+            z-index: 1; /* Sit on top */
+            left: 0;
+            top: 0;
+            width: 100%; /* Full width */
+            height: 100%; /* Full height */
+            overflow: auto; /* Enable scroll if needed */
+            background-color: rgb(0,0,0); /* Fallback color */
+            background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+            }
+
+            /* Modal Content/Box */
+            .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto; /* 15% from the top and centered */
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%; /* Could be more or less, depending on screen size */
+            }
+
+            /* The Close Button */
+            .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            }
+
+            .close:hover,
+            .close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+            }
+        </style>
+        
+        <script>
+        //global vars
+        let roomsArray = 0;
+        let roomPasswordArray = 0;
+        let realRoomPassword = 0;
+        let realButtonID = 0;
+        let realBanList = 0;
+        var socketio = io.connect();
+
+        $(function(){
+            // prevents the forms from reloading the page upon a click of the submit function
+            $("#messageForm").submit(function(e) {
+                e.preventDefault();
+            });
+            $("#userForm").submit(function(e){
+                e.preventDefault();
+                socketio.emit('user login', document.getElementById('username').value);
+                document.getElementById("userLogin").style.display = "none";
+                document.getElementById('mainChatPage').style.visibility = "visible";
+            })
+        })
+
+        socketio.on("message_to_client", function(data) {
+            //Append an HR thematic break and the escaped HTML of the new message
+            //document.getElementById("chatlog").appendChild(document.createElement("hr"));
+            let text = data['curUser'] + ": " + data['message'];
+            document.getElementById("chatlog").appendChild(document.createTextNode(text));
+            document.getElementById("chatlog").appendChild(document.createElement("br"));
+            document.getElementById("chatlog").appendChild(document.createElement("hr"));
+            document.getElementById("myImg").setAttribute('alt', " ");
+
+        });
+
+
+        socketio.on("img_to_client", function(data) {
+            let username = data['curUser'] + ": ";
+            var image = new Image();
+            image.src = data['image'];
+            document.getElementById("chatlog").appendChild(document.createTextNode(username));
+            document.getElementById("chatlog").appendChild(image);
+            document.getElementById("chatlog").appendChild(document.createElement("br"));
+            document.getElementById("chatlog").appendChild(document.createElement("hr"));
+        });
+
+        socketio.on("whisper_to_client", function(data){
+            //verify the usernames of the receiving party and the sending party and display the page accordingly
+            if(document.getElementById('username').value == data.sender || document.getElementById('username').value == data.receiver){
+                let text = "Private Message from "+data['sender'] + ": " + data['message'];
+                if(document.getElementById('username').value == data.sender){
+                    text = "Private Message to "+data['receiver'] + ": " + data['message'];
+                }
+                document.getElementById("chatlog").appendChild(document.createTextNode(text));
+                document.getElementById("chatlog").appendChild(document.createElement("br"));
+                document.getElementById("chatlog").appendChild(document.createElement("hr"));
+            }
+        });
+
+        function happyFace(str){
+            document.getElementById("message_input").value += str;
+        }
+
+        function sendMessage(){
+            let msg = document.getElementById("message_input").value;
+            msg.trim();
+            let roomNow = document.getElementById("room").value;
+            if(msg.substring(0,3) === '/w '){
+                //removes the '/w ' part since its unnecessary
+                msg = msg.substring(3);
+                //splits the message based on spaces
+                let messageSplit = msg.trim().split(/\s+/);
+                //name of the person who is receiving the private message
+                let messageReceiver = messageSplit[0];
+                msg = msg.replace(messageReceiver, '');
+
+                socketio.emit("message_to_server", {message:msg, curRoom: roomNow, whisper: true, recipient: messageReceiver, sender: document.getElementById('username').value});
+            }//deals with kicking/banning a person from a particular room
+            else if(msg.substring(0,6) === '/kick ' || msg.substring(0,5) === '/ban '){
+                let banned = false;
+                if(msg.substring(0,5)=='/ban '){
+                    banned = true;
+                }
+                //removes the '/kick ' part since its unnecessary
+                if(banned){
+                    msg = msg.substring(5);
+                }
+                else{
+                    msg = msg.substring(6);
+                }
+                //splits the message based on spaces
+                let messageSplit = msg.trim().split(/\s+/);
+                //name of the person who is getting removed
+                let kickReceiver = messageSplit[0];
+                msg = msg.replace(kickReceiver, '');
+                socketio.emit("message_to_server", {message:msg, curRoom: roomNow, kick: true, ban: banned, recipient: kickReceiver, sender: document.getElementById('username').value});
+            } else {
+                socketio.emit("message_to_server", {message:msg, curRoom: roomNow})
+            }
+            //resets the message input box so you don't have to delete what you just wrote if you want to send another message
+            document.getElementById("message_input").value = "";
+        }
+
+        function sendImage () {
+            let encodedImg = document.getElementById('myImg').value;
+            let roomNow = document.getElementById("room").value;
+            socketio.emit('user image', {image: encodedImg, curRoom: roomNow});
+            // msg.append($('<p>').append($('<b>').text(from), '<img src="' + base64Image + '"/>'));
+        }
+
+        socketio.on('get users', function(data){
+            //populates the global arrays above with the necessary information
+            roomsArray = data.userRooms; 
+            roomPasswordArray = data.roomPasswords;
+            realBanList = data.banList;
+            //we only want to make changes to a particular user's information if the info from the server contains information about the user.
+            if(data.curSocketUser == document.getElementById('username').value){
+                let html = '';
+                roomsArray = data.userRooms;
+                document.getElementById("room").value = data.curSocketRoom;
+                //loops through each of the usernames and adds them to the list on the main chat page.
+                for(i = 0; i < data.userRooms.length; i++){
+                    if(roomsArray[i][0] == data.curSocketRoom){
+                        for(j = 1; j < roomsArray[i][0].length;j++){
+                            if(typeof(roomsArray[i][j]) !== 'undefined'){
+                                html+='<li class ="list-group-item" id='+roomsArray[i][j] +' onclick="listClicked()">'+roomsArray[i][j]+'</li>';
+                            }
+                        }
+                        break;
+                    }
+                }
+                document.getElementById('userList').innerHTML = html;
+                document.getElementById('onlineUserTitle').innerHTML = "Online: " + data.curSocketRoom;
+            } else {
+                let html = '';
+                roomsArray = data.userRooms;
+                    //loops through each of the usernames and adds them to the list on the main chat page.
+                    //the point of this else statement is to update the online list
+                    //without modifying any of the user specific data such as username or room.
+                for(i = 0; i < data.userRooms.length; i++){
+                    if(roomsArray[i][0] == document.getElementById("room").value){
+                        for(j = 1; j < roomsArray[i][0].length;j++){
+                            if(typeof(roomsArray[i][j]) !== 'undefined'){
+                                html+='<li class ="list-group-item" id='+roomsArray[i][j] +' onclick="listClicked()">'+roomsArray[i][j]+'</li>';
+                            }
+                        }
+                        break;
+                    }
+                }
+                document.getElementById('userList').innerHTML = html;
+            } 
+        })
+
+        //sends the new chat room data over to the server
+        function createRoom(){
+            let content = document.getElementById("newChatRoomName").value;
+            let roomPass = document.getElementById("roomPassword").value;
+            // split the room name by the spaces and use the first word
+            // since we use the room name as the id for the button on the viewRooms dialog box
+            // we cannot have spaces in the room name.
+            let wordsInRoom = content.trim().split(/\s+/);
+            let roomName = wordsInRoom[0];
+            socketio.emit("newRoomCreated", {room: roomName, roomPassword: roomPass});
+            document.getElementById('room').value = roomName;
+            $("#newChatRoom").dialog('close') ;
+        }
+
+        //shows the create new chat room dialog box.
+        function showNewChatRoom(){
+            $("#newChatRoom").dialog({}) ;
+        }
+
+        //opens the view rooms dialog box as well as populates it with a list of current rooms.
+        function showCurrentRooms(){
+            let html ='';
+            if(roomsArray != 0){
+                for(i = 0; i < roomsArray.length; i++){
+                    if(typeof(roomPasswordArray[roomsArray[i][0]]) !== 'undefined' &&  roomPasswordArray[roomsArray[i][0]] != ''){
+                        html+='<li><input type="button" class="btn btn-danger" id='+roomsArray[i][0]+' value='+roomsArray[i][0]+'></li>';
+                    }else{
+                        html+='<li><input type="button" id='+roomsArray[i][0]+' value='+roomsArray[i][0]+'></li>';
+                    }
+                }  
+            }
+            document.getElementById('viewRoomList').innerHTML = html;
+            //adds the onclick attribute to all of the buttons shown on the view chat rooms dialog box
+            for(i = 0; i < roomsArray.length; i++){
+                let roomID = roomsArray[i][0];
+                document.getElementById(roomID).onclick =function(event){
+                    viewButtonClicked(this.id = roomID);
+                    event.preventDefault();
+                }
+            }
+            $("#viewChatRooms").dialog({}) ;
+        }
+
+        //deals with actually joining the room after the person clicks the room in the view rooms dialog box
+        function viewButtonClicked(buttonID){
+            let currentRoom = document.getElementById('room').value;
+            realButtonID = buttonID;
+            let curBanIndex = -1;
+            //checked the banned list for the username
+            for(i = 0; i < realBanList.length; i++){
+                if(buttonID == realBanList[i][0]){
+                    for(j = 0; j < realBanList[i].length; j++){
+                        if(realBanList[i][j] == document.getElementById('username').value){
+                            alert("Sorry, you cannot join this room, you've been banned.");
+                            $("#viewChatRooms").dialog('close');
+                            return;
+                        }
+                    }
+                }
+            }
+            //deals with verifying password on the room
+            if(roomPasswordArray[realButtonID] != '' && typeof(roomPasswordArray[realButtonID]) !== 'undefined'){
+                realRoomPassword = roomPasswordArray[buttonID];
+                $("#viewChatRooms").dialog('close');
+                $("#enterRoomPassword").dialog({});
+            }else{//if theres no password, just join the room right away
+                socketio.emit('joinNewRoom', {message: buttonID, curRoom: currentRoom});
+                document.getElementById('room').value = buttonID;
+                $("#viewChatRooms").dialog('close');
+            }  
+        }
+
+        function dealWithPassword(){
+            //checks to see if the passwords match
+            let curPassword = document.getElementById("enterPassword").value;
+            let currentRoom = document.getElementById('room').value;
+            if(curPassword === realRoomPassword){
+                socketio.emit('joinNewRoom', {message: realButtonID, curRoom: currentRoom});
+                document.getElementById('room').value = realButtonID;
+            }
+            else{
+                alert("Sorry, thats the wrong password.");
+            }
+            $("#enterRoomPassword").dialog('close');
+        }
+
+        // function sendImage() {
+        //     let msg = document.getElementById("message_input").value;
+        //     let imgFileName = document.getElementById('myImg').value;
+        //     console.log(msg);
+        //     console.log(imgFileName);
+        // }
+
+        $(function () {
+            $(":file").change(function () {
+                if (this.files && this.files[0]) {
+                    var reader = new FileReader();
+                    reader.onload = imageIsLoaded;
+                    reader.readAsDataURL(this.files[0]);
+                }
+            });
+        });
+
+        function imageIsLoaded(e) {
+            $('#myImg').attr('src', e.target.result);
+            // Store encoded image in "myImg".value
+            document.getElementById('myImg').value = e.target.result;
+        };
+        </script>
+    </head>
+
+    <body>   
+    <div class ="container-fluid">
+    <!--  deals with making sure a user has a username before being able to chat  -->
+    <div id="userLogin" class="row">
+        <div class = "col-md-8">
+            <form id="userForm">
+                <div class="form-group">
+                    <label>Enter Username</label>
+                        <input class ="form-control" id="username">
+                        <!-- we use this hidden input later on to check the room on the client side -->
+                        <input hidden id="room" class = "form-control">
+                    <br>
+                    <input type="submit" class="btn btn-primary" value="login">
+                </div>
+            </form>
+        </div>
+    </div>
+    <!--  main chat page division -->
+    <div class="row" id="mainChatPage">
+        <div class ="col-md-2 text-left" >
+            <!--  button for creating a new chat room, opens a dialog box -->
+            <input type="button" class = "btn btn-primary" value ="Create new chatroom" onclick="showNewChatRoom()">
+            <!-- button for viewing the current open chat rooms, also opens a dialog box with chat rooms as buttons -->
+            <input type="button" class = "btn btn-primary" value ="View rooms" onclick="showCurrentRooms()">
+        </div>
+        <div class ="col-md-8">
+            <!-- This is where all the actual chat goes -->
+            <!-- we append to the div as messages are entered by different users -->
+            <div class ="chat" id="chatlog"></div>
+            <!-- this form deals with allowing the users to type their message and then send it -->
+            <form id="messageForm">
+                <div class="form-group">
+                    <label>Enter Message</label>
+                    <textarea class ="form-control" id="message_input"></textarea>
+                    <br>
+    
+                </div>
+            </form>
+            <!-- EMOJI -->
+            <!-- Trigger/Open The Modal -->
+            <button class="btn btn-primary" id="myBtn">😁</button>
+            <!-- The Modal -->
+            <div id="myModal" class="modal">
+            <!-- Modal content -->
+                <div class="modal-content">
+                    <div class="close" id="emojiRow">
+                        <script>
+                        var i = 0;
+                        for (i = 0;i <= 8; i++) {
+                            document.write("<input type=\"button\" class=\"btn btn-outline-dark\" value=\"&#1285" + (13 + i) + ";\" onclick=\"happyFace(" + "'\\uD83D\\uDE0" + (1 + i) + "')\">\n");
+                        }
+                        </script>
+                    </div>
+                </div>
+            </div>
+            
+            
+            <!-- script for modal -->
+            <script>
+            // Get the modal
+            var modal = document.getElementById('myModal');
+            // Get the button that opens the modal
+            var btn = document.getElementById("myBtn");
+            // Get the <span> element that closes the modal
+            var span = document.getElementsByClassName("close")[0];
+            // When the user clicks on the button, open the modal 
+            btn.onclick = function() {
+                modal.style.display = "block";
+            }
+            // When the user clicks on <span> (x), close the modal
+            span.onclick = function() {
+                modal.style.display = "none";
+            }
+            // When the user clicks anywhere outside of the modal, close it
+            window.onclick = function(event) {
+                if (event.target == modal) {
+                    modal.style.display = "none";
+                }
+            }
+            </script>
+
+            <input type="submit" class="btn btn-primary" value="Send" onclick="sendMessage()">
+            <!-- sendMessage() sends the message to the server which emits it to all connected users in the same room -->
+            <input type="submit" class="btn btn-primary" value="Send IMAGE" onclick="sendImage()">
+
+            <!-- IMAGE Pick & display-->
+            <input type='file' />
+            <img id="myImg" src="#" height="100" hidden alt=" " />
+
+            <!-- The dialog box shown when create new chat room button is clicked. -->
+            <div id = "newChatRoom" title="Create new Room">
+                <label for="newChatRoomName">New Chat Room Name: </label>
+                <input type="text" name="newChatRoomName" id="newChatRoomName" class="input" placeholder="one-word room name...">
+                <label for="roomPassword">Room password: </label>
+                <input type="text" name="roomPassword" id="roomPassword" class="input" placeholder="password...blank for no password">
+                <input type="button" value="Create" onclick="createRoom()" >
+                
+            </div>
+
+            <!--  The dialog box shown when people are trying to join other rooms -->
+            <div id = "viewChatRooms" title="Pick a room.">
+                    <label id="viewRoom">Room Name: </label>
+                    <ul class="list-group" id="viewRoomList">
+                        <li><input type="button" id="default" value ="Default room"></li>
+                    </ul>
+
+            </div>
+
+            <!-- This dialog box prompts the user for a password upon attempting to join a password-protected room -->
+            <div id="enterRoomPassword" title="This room is protected by a password">
+                <label for="enterPassword">Enter the password: </label>
+                <input type = "text" name="enterPassword" id="enterPassword" class="input" placeholder="password">
+                <input type="button" value="submit" id="submitPassword" onclick='dealWithPassword()'>
+            </div>
+        </div>
+        <div class ="col-md-2 text-right" >
+            <div class ="well">
+                <h3 id="onlineUserTitle">Online: Default Room</h3>
+                <ul class="list-group" id="userList">
+                </ul>
+            </div>
+        </div>
+        </div>
+        
+    </div>
+      <!-- <script src="upload_file.js"></script> -->
+   </body>
+</html>
